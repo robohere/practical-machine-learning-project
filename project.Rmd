@@ -1,0 +1,109 @@
+---
+title: "project"
+author: "Prabal Kumar"
+date: "March 17, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+## Executive Summary
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+
+## Data
+First of all, let's import the required libraries
+```{r libraries}
+library(caret)
+library(dplyr)
+```
+The data files are downloaded at the same directory as of this .Rmd file. So, we can read those file directly.
+```{r readData}
+training <- read.csv("pml-training.csv", header = TRUE, na.strings = c ("","NA"))
+testing <- read.csv("pml-testing.csv", header = TRUE, na.strings = c ("","NA"))
+```
+Let's look at the data to understand it better:
+```{r dim}
+dim(training)
+```
+so we have 19622 rows and 160 columns in the training data set.
+```{r testDim}
+dim(testing)
+```
+Since the number of columns are so huge which will result into that manu number of variables in our model. So, we need to get rid of few of them which are less of importance. First, remove all the columns which have 'NA' values in them because they will impact the model for no good reason.
+```{r removeNA}
+aTraining <- training[colSums(is.na(training)) == 0 ]
+```
+Now check the size of training set.
+```{r aDim}
+dim(aTraining)
+```
+We are left with only 60 columns. 
+
+## Model
+We are going to use validation data set as well, so let's partition the training data set into two.
+```{r valid}
+inTrain <- createDataPartition(y = aTraining$classe, p = 0.7, list = FALSE)
+train <- aTraining[inTrain, ]
+validation <- aTraining[-inTrain, ]
+```
+We will use two different algorithms for comparison purpose:  
+
+1. CART (Classification And Regression Tree)
+2. RF (Random Forest)
+
+### CART
+```{r cartTrain}
+cartModel <- train(classe ~ ., method = "rpart", data = train)
+confusionMatrix(cartModel)
+```
+The accuracy of this model is around 76% on training data set. 
+```{r cartValid}
+cartPredict <- predict(cartModel, validation)
+table(cartPredict, validation$classe)
+```
+Only Class A and B are predicted correctly on validation data set.
+
+### RF
+Before starting Random Forest, we should prune down few of the least imporatant variables otherwise it will take a lot of time to run. After looking at the columns we can straight away remove "X", "cvtd_timestamp", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2" columns.
+```{r ignore}
+train <- train %>%
+  select(-c(X, cvtd_timestamp, user_name, raw_timestamp_part_1, raw_timestamp_part_2))
+validation <- validation %>%
+  select(-c(X, cvtd_timestamp, user_name, raw_timestamp_part_1, raw_timestamp_part_2))
+```
+So, we have reduced 5 columns and now we have only 55 columns. Next, we create a control object which will be used in "rf" method.
+```{r ctrl}
+ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 5, classProbs = TRUE,
+                     savePredictions = TRUE)
+```
+Next, define the tuning parameter which is the number of features randomly selected to create each tree.
+```{r mtry}
+mtryValues <- c(1,2,3,4,5,10,20,32)
+```
+Let's train the model using Random Forest. 
+```{r rfTrain}
+rfModel <- train(classe ~ ., method = "rf", data = train, ntree = 100, tuneGrid = data.frame(mtry = mtryValues),
+               importance = TRUE, trControl = ctrl, prox = TRUE)
+confusionMatrix(rfModel)
+```
+The accuracy of this model is around 99.7% on training data set which is quite good. 
+```{r rfValid}
+rfPredict <- predict(rfModel, validation)
+table(rfPredict, validation$classe)
+```
+Almost all the classes are predicted correctly on validation data set.  
+So, clearly Random Forest is the better method as compare to CART, however it took a lot of time. 
+
+
+## Prediction
+Let's predict on test dataset using our chosen model.
+```{r predTest}
+predictions <- predict(rfModel, testing)
+predictions
+```
+We cane to know that we have got a very accurate model after submitting the quiz.
+
+## Conclusion
+In nutshell, Random Forest is by far the better method but it requires a lot of configurations and settings. Also, its execution time is very huge as compare to others.
